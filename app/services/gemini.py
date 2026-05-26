@@ -17,7 +17,17 @@ class GeminiAuditService:
             file_uri=gcs_uri,
             mime_type=mime_type
         )
-        
+        return await self._run_inference(document_part)
+
+    async def analyze_document_from_bytes(self, file_bytes: bytes, mime_type: str) -> FinancialAuditReport:
+        # For local testing without a GCS bucket
+        document_part = types.Part.from_bytes(
+            data=file_bytes,
+            mime_type=mime_type
+        )
+        return await self._run_inference(document_part)
+
+    async def _run_inference(self, document_part: types.Part) -> FinancialAuditReport:
         system_instruction = (
             "You are an expert Forensic Financial Auditor. Your task is to process incoming document pages, "
             "extract mathematical table listings, and check for accounting discrepancies, fraud, or anomalies. "

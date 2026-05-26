@@ -2,10 +2,16 @@ import os
 from fastapi import FastAPI, HTTPException, Request, status
 from app.services.gemini import GeminiAuditService
 from google.cloud import bigquery
+from google.auth.exceptions import DefaultCredentialsError
 
 app = FastAPI(title="AegisMind Event-Driven Core")
 gemini_service = GeminiAuditService()
-bq_client = bigquery.Client()
+
+try:
+    bq_client = bigquery.Client()
+except DefaultCredentialsError:
+    print("WARNING: No GCP credentials found. BigQuery writes will be skipped locally.")
+    bq_client = None
 
 @app.get("/health")
 def health_check():
@@ -39,11 +45,13 @@ async def handle_gcs_event(request: Request):
         
         # Save structured results to BigQuery
         table_id = os.getenv("BIGQUERY_TABLE_ID")
-        if table_id:
+        if table_id and bq_client:
             row_to_insert = [audit_result.model_dump()]
             errors = bq_client.insert_rows_json(table_id, row_to_insert)
             if errors:
                 print(f"BigQuery write logging errors encountered: {errors}")
+        elif table_id and not bq_client:
+            print("Skipping BigQuery write locally: No credentials found.")
                 
         return {
             "status": "processed",
