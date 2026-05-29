@@ -3,7 +3,7 @@ import os
 from google import genai
 # pyrefly: ignore [missing-import]
 from google.genai import types
-from app.schemas.audit import FinancialAuditReport
+from app.schemas.audit import FinancialAuditReport, FinancialAuditResult
 
 class GeminiAuditService:
     def __init__(self):
@@ -11,7 +11,7 @@ class GeminiAuditService:
         self.client = genai.Client()
         self.model_name = "gemini-2.5-flash"
 
-    async def analyze_document_from_gcs(self, gcs_uri: str, mime_type: str) -> FinancialAuditReport:
+    async def analyze_document_from_gcs(self, gcs_uri: str, mime_type: str) -> FinancialAuditResult:
         # Reference a remote file stored in GCS directly via Part block
         document_part = types.Part.from_uri(
             file_uri=gcs_uri,
@@ -19,7 +19,7 @@ class GeminiAuditService:
         )
         return await self._run_inference(document_part)
 
-    async def analyze_document_from_bytes(self, file_bytes: bytes, mime_type: str) -> FinancialAuditReport:
+    async def analyze_document_from_bytes(self, file_bytes: bytes, mime_type: str) -> FinancialAuditResult:
         # For local testing without a GCS bucket
         document_part = types.Part.from_bytes(
             data=file_bytes,
@@ -27,7 +27,7 @@ class GeminiAuditService:
         )
         return await self._run_inference(document_part)
 
-    async def _run_inference(self, document_part: types.Part) -> FinancialAuditReport:
+    async def _run_inference(self, document_part: types.Part) -> FinancialAuditResult:
         system_instruction = (
             "You are an expert Forensic Financial Auditor. Your task is to process incoming document pages, "
             "extract mathematical table listings, and check for accounting discrepancies, fraud, or anomalies. "
@@ -55,6 +55,9 @@ class GeminiAuditService:
         # Returns parsed data fitting our exact schema validated object
         report = FinancialAuditReport.model_validate_json(response.text)
         
+        # Convert to result to include cost tracking
+        result = FinancialAuditResult(**report.model_dump())
+        
         # Calculate tokens and cost
         if hasattr(response, "usage_metadata") and response.usage_metadata:
             metadata = response.usage_metadata
@@ -67,11 +70,11 @@ class GeminiAuditService:
             # Output: $0.30 / 1M tokens
             cost = (prompt_tokens / 1_000_000 * 0.075) + (completion_tokens / 1_000_000 * 0.30)
             
-            report.token_usage = {
+            result.token_usage = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens
             }
-            report.inference_cost_usd = round(cost, 6)
+            result.inference_cost_usd = round(cost, 6)
             
-        return report
+        return result
