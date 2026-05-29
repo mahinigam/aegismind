@@ -1,6 +1,6 @@
 # pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class BoundingBox(BaseModel):
     box_2d: List[int] = Field(..., description="Normalized coordinates [ymin, xmin, ymax, xmax] scaled 0-1000")
@@ -17,3 +17,5 @@ class FinancialAuditReport(BaseModel):
     is_anomaly_detected: bool = Field(..., description="True if fraud, calculations mismatch, or policy violation found")
     audit_justification: str = Field(..., description="Chain of thought natural language reasoning behind anomaly status")
     visual_grounding_coordinates: List[BoundingBox] = Field(..., description="Array of bounding boxes pointing directly to text discrepancies")
+    inference_cost_usd: float = Field(0.0, description="The cost of this inference based on Gemini token usage")
+    token_usage: Dict[str, int] = Field(default_factory=dict, description="Detailed prompt and completion token counts")

@@ -53,4 +53,25 @@ class GeminiAuditService:
         )
         
         # Returns parsed data fitting our exact schema validated object
-        return FinancialAuditReport.model_validate_json(response.text)
+        report = FinancialAuditReport.model_validate_json(response.text)
+        
+        # Calculate tokens and cost
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            metadata = response.usage_metadata
+            prompt_tokens = metadata.prompt_token_count or 0
+            completion_tokens = metadata.candidates_token_count or 0
+            total_tokens = metadata.total_token_count or 0
+            
+            # Gemini 2.5 Flash Pricing
+            # Input: $0.075 / 1M tokens
+            # Output: $0.30 / 1M tokens
+            cost = (prompt_tokens / 1_000_000 * 0.075) + (completion_tokens / 1_000_000 * 0.30)
+            
+            report.token_usage = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
+            }
+            report.inference_cost_usd = round(cost, 6)
+            
+        return report

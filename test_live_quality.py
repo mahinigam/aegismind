@@ -4,10 +4,15 @@ import asyncio
 from app.services.gemini import GeminiAuditService
 
 # Import rich components
+# pyrefly: ignore [missing-import]
 from rich.console import Console
+# pyrefly: ignore [missing-import]
 from rich.panel import Panel
+# pyrefly: ignore [missing-import]
 from rich.table import Table
+# pyrefly: ignore [missing-import]
 from rich.json import JSON
+# pyrefly: ignore [missing-import]
 from rich.text import Text
 
 console = Console()

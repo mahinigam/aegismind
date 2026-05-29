@@ -22,11 +22,25 @@ gcloud run deploy $SERVICE_NAME \
   --allow-unauthenticated \
   --set-env-vars BIGQUERY_TABLE_ID="$PROJECT_ID.$DATASET_NAME.$TABLE_NAME"
 
-echo "5. Connecting Eventarc Trigger from Storage Ingest bucket directly to the Cloud Run Microservice endpoint..."
+SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
+
+echo "5. Setting up Enterprise Pub/Sub with Dead Letter Queues (DLQ)..."
+gcloud pubsub topics create aegismind-events
+gcloud pubsub topics create aegismind-dlq
+gcloud pubsub subscriptions create aegismind-sub \
+    --topic=aegismind-events \
+    --push-endpoint="$SERVICE_URL/api/audit-trigger" \
+    --dead-letter-topic=aegismind-dlq \
+    --max-delivery-attempts=5
+
+gcloud pubsub subscriptions create aegismind-dlq-sub \
+    --topic=aegismind-dlq \
+    --push-endpoint="$SERVICE_URL/api/dlq-handler"
+
+echo "6. Connecting Eventarc Trigger to Pub/Sub Topic..."
 gcloud eventarc triggers create aegismind-gcs-trigger \
   --location=$REGION \
-  --destination-run-service=$SERVICE_NAME \
-  --destination-run-path="/api/audit-trigger" \
+  --destination-pubsub-topic="aegismind-events" \
   --event-filters="type=google.cloud.storage.object.v1.finalized" \
   --event-filters="bucket=$BUCKET_NAME" \
   --service-account="$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
