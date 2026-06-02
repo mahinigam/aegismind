@@ -37,29 +37,39 @@ if uploaded_file:
     with col1:
         st.subheader("Document Viewer")
         if mime_type == "application/pdf":
-            # Render first page of PDF to image
             doc = fitz.open(stream=file_bytes, filetype="pdf")
-            page = doc.load_page(0)
-            pix = page.get_pixmap()
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             
-            # Draw bounding boxes if anomaly detected
+            # Group bounding boxes by page
+            bboxes_by_page = {}
             if report.is_anomaly_detected and report.visual_grounding_coordinates:
-                draw = ImageDraw.Draw(img)
                 for bbox in report.visual_grounding_coordinates:
-                    coords = bbox.box_2d
-                    # Coordinates are 0-1000 normalized, convert to image scale
-                    y_min = (coords[0] / 1000.0) * img.height
-                    x_min = (coords[1] / 1000.0) * img.width
-                    y_max = (coords[2] / 1000.0) * img.height
-                    x_max = (coords[3] / 1000.0) * img.width
-                    
-                    # Draw a thick red box
-                    draw.rectangle([x_min, y_min, x_max, y_max], outline="red", width=4)
-                    # Optionally, add a label above it
-                    draw.text((x_min, max(0, y_min - 15)), bbox.label, fill="red")
-            
-            st.image(img, use_container_width=True)
+                    pnum = getattr(bbox, "page_number", 0)
+                    bboxes_by_page.setdefault(pnum, []).append(bbox)
+            else:
+                bboxes_by_page[0] = []
+                
+            for page_num in sorted(bboxes_by_page.keys()):
+                if page_num >= len(doc):
+                    page_num = len(doc) - 1
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap()
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                bboxes = bboxes_by_page[page_num]
+                if bboxes:
+                    draw = ImageDraw.Draw(img)
+                    for bbox in bboxes:
+                        coords = bbox.box_2d
+                        y_min = (coords[0] / 1000.0) * img.height
+                        x_min = (coords[1] / 1000.0) * img.width
+                        y_max = (coords[2] / 1000.0) * img.height
+                        x_max = (coords[3] / 1000.0) * img.width
+                        
+                        draw.rectangle([x_min, y_min, x_max, y_max], outline="red", width=4)
+                        draw.text((x_min, max(0, y_min - 15)), bbox.label, fill="red")
+                
+                st.write(f"**Page {page_num + 1}**")
+                st.image(img, use_container_width=True)
         else:
             # Handle standard image uploads similarly
             img = Image.open(BytesIO(file_bytes))
@@ -83,7 +93,14 @@ if uploaded_file:
             st.success("✅ Clean Document")
             
         st.write("### Extracted Financial Tables")
-        st.table([t.model_dump() for t in report.extracted_tables])
+        formatted_tables = []
+        for t in report.extracted_tables:
+            formatted_tables.append({
+                "Item Description": t.item_description,
+                "Amount": f"${t.amount:,.2f}",
+                "Confidence": f"{t.confidence_score:.2%}"
+            })
+        st.table(formatted_tables)
         
         st.write("### AI Economics")
         st.metric(label="Inference Cost", value=f"${report.inference_cost_usd:.5f}")

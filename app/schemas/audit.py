@@ -5,6 +5,7 @@ from typing import List, Optional, Dict
 class BoundingBox(BaseModel):
     box_2d: List[int] = Field(..., description="Normalized coordinates [ymin, xmin, ymax, xmax] scaled 0-1000")
     label: str = Field(..., description="Short identification label of what is highlighted")
+    page_number: int = Field(..., description="The 0-indexed page number where this bounding box is located")
 
 class TableRow(BaseModel):
     item_description: str

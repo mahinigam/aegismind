@@ -32,7 +32,7 @@ class GeminiAuditService:
             "You are an expert Forensic Financial Auditor. Your task is to process incoming document pages, "
             "extract mathematical table listings, and check for accounting discrepancies, fraud, or anomalies. "
             "Crucially, if an error is found, return the precise 2D bounding boxes [ymin, xmin, ymax, xmax] "
-            "on a 0-1000 normalized scale showing exactly where the textual mismatch exists."
+            "on a 0-1000 normalized scale along with the 0-indexed page_number showing exactly where the textual mismatch exists."
         )
 
         prompt = (
