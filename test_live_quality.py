@@ -81,8 +81,12 @@ async def main():
             coord_str = "\n".join([f"* [bold]{bbox.label}[/bold]: {bbox.box_2d}" for bbox in report.visual_grounding_coordinates])
             
             panel_content = Text("[ALERT] FRAUD DETECTED!\n\n", style="bold red")
-            panel_content.append("Justification:\n", style="bold white")
-            panel_content.append(report.audit_justification + "\n\n", style="red")
+            if report.audit_justification:
+                panel_content.append("Finding:\n", style="bold white")
+                panel_content.append(report.audit_justification.finding + "\n\n", style="red")
+                panel_content.append(f"Expected: {report.audit_justification.expected_value}\n", style="yellow")
+                panel_content.append(f"Actual: {report.audit_justification.actual_value}\n\n", style="yellow")
+            
             panel_content.append("Visual Coordinates:\n", style="bold white")
             panel_content.append(coord_str, style="yellow")
             

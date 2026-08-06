@@ -2,6 +2,12 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
+class AnomalyDetails(BaseModel):
+    finding: str = Field(..., description="A detailed explanation of the math errors found.")
+    expected_value: str = Field(..., description="A comma-separated list of the correct values, e.g., 'Subtotal: $8,000.00, Tax: $800.00, Total: $8,800.00'")
+    actual_value: str = Field(..., description="A comma-separated list of the incorrect values found on the document, e.g., 'Subtotal: $12,000.00, Tax: $1,200.00, Total: $13,200.00'")
+    recommendation: str = Field(..., description="Recommended action to resolve the anomaly")
+
 class BoundingBox(BaseModel):
     box_2d: List[int] = Field(..., description="Normalized coordinates [ymin, xmin, ymax, xmax] scaled 0-1000")
     label: str = Field(..., description="Short identification label of what is highlighted")
@@ -16,7 +22,7 @@ class FinancialAuditReport(BaseModel):
     document_type: str = Field(..., description="Invoice, Tax Return, Bank Statement etc.")
     extracted_tables: List[TableRow]
     is_anomaly_detected: bool = Field(..., description="True if fraud, calculations mismatch, or policy violation found")
-    audit_justification: str = Field(..., description="Chain of thought natural language reasoning behind anomaly status")
+    audit_justification: Optional[AnomalyDetails] = Field(None, description="Detailed structured reasoning if an anomaly is detected.")
     visual_grounding_coordinates: List[BoundingBox] = Field(..., description="Array of bounding boxes pointing directly to text discrepancies")
 
 class FinancialAuditResult(FinancialAuditReport):

@@ -37,7 +37,7 @@ class GeminiAuditService:
 
         prompt = (
             "Perform a strict compliance audit on this document. Extract items into structured rows. "
-            "If any fraud or calculation mismatch is occurring, flag it immediately and provide the exact bounding boxes."
+            "If any fraud or calculation mismatch is occurring, flag it immediately and provide the exact bounding boxes for EVERY incorrect total (e.g. Subtotal, Tax, and Total)."
         )
 
         response = self.client.models.generate_content(
@@ -48,7 +48,7 @@ class GeminiAuditService:
                 # Enforce JSON generation matching our strict Pydantic structure
                 response_mime_type="application/json",
                 response_schema=FinancialAuditReport,
-                temperature=0.1
+                temperature=0.0
             )
         )
         

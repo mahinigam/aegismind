@@ -65,8 +65,20 @@ if uploaded_file:
                         y_max = (coords[2] / 1000.0) * img.height
                         x_max = (coords[3] / 1000.0) * img.width
                         
-                        draw.rectangle([x_min, y_min, x_max, y_max], outline="red", width=4)
-                        draw.text((x_min, max(0, y_min - 15)), bbox.label, fill="red")
+                        # Add padding and use thinner, semi-transparent border (alpha ignored if not RGBA but 2 is thinner)
+                        pad = 4
+                        draw.rectangle([x_min - pad, y_min - pad, x_max + pad, y_max + pad], outline="red", width=2)
+                        
+                        # Draw badge background for text
+                        text_x = x_min
+                        text_y = max(0, y_min - 15 - pad)
+                        try:
+                            left, top, right, bottom = draw.textbbox((text_x, text_y), bbox.label)
+                            draw.rectangle([left - 2, top - 2, right + 2, bottom + 2], fill="red")
+                        except AttributeError:
+                            # Fallback if textbbox not supported
+                            pass
+                        draw.text((text_x, text_y), bbox.label, fill="white")
                 
                 st.write(f"**Page {page_num + 1}**")
                 st.image(img, use_container_width=True)
@@ -81,14 +93,35 @@ if uploaded_file:
                     x_min = (coords[1] / 1000.0) * img.width
                     y_max = (coords[2] / 1000.0) * img.height
                     x_max = (coords[3] / 1000.0) * img.width
-                    draw.rectangle([x_min, y_min, x_max, y_max], outline="red", width=4)
+                    
+                    pad = 4
+                    draw.rectangle([x_min - pad, y_min - pad, x_max + pad, y_max + pad], outline="red", width=2)
+                    
+                    text_x = x_min
+                    text_y = max(0, y_min - 15 - pad)
+                    try:
+                        left, top, right, bottom = draw.textbbox((text_x, text_y), bbox.label)
+                        draw.rectangle([left - 2, top - 2, right + 2, bottom + 2], fill="red")
+                    except AttributeError:
+                        pass
+                    draw.text((text_x, text_y), bbox.label, fill="white")
             st.image(img, use_container_width=True)
             
     with col2:
         st.subheader("Audit Results")
         if report.is_anomaly_detected:
             st.error("🚨 FRAUD / ANOMALY DETECTED")
-            st.write(f"**Justification**: {report.audit_justification}")
+            if report.audit_justification:
+                st.markdown("### Anomaly Breakdown")
+                st.info(f"**Finding:** {report.audit_justification.finding}")
+                
+                col_a, col_b = st.columns(2)
+                col_a.metric("Actual Value (On Document)", report.audit_justification.actual_value)
+                col_b.metric("Expected Value (Calculated)", report.audit_justification.expected_value)
+                
+                st.warning(f"**Recommendation:** {report.audit_justification.recommendation}")
+            else:
+                st.write("**Justification**: Anomaly detected but no details provided.")
         else:
             st.success("✅ Clean Document")
             
