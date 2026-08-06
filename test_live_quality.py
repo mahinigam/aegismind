@@ -58,41 +58,45 @@ async def main():
     try:
         report = await service.analyze_document_from_bytes(document_bytes, mime_type)
         
-        console.print(Panel.fit("[bold green][SUCCESS] Extraction Complete! Structured Output:[/bold green]"))
-        
-        # Display the tables extracted using Rich Table
-        table = Table(title="Extracted Financial Items", show_header=True, header_style="bold cyan")
-        table.add_column("Item Description", style="dim")
-        table.add_column("Amount", justify="right", style="green")
-        table.add_column("Confidence", justify="right", style="yellow")
-        
-        for item in report.extracted_tables:
-            table.add_row(item.item_description, f"${item.amount:,.2f}", f"{item.confidence_score:.2f}")
-        
-        console.print(table)
-        print("\n")
-        
-        # Display the Raw JSON nicely
-        print(f"{ANSI_BOLD}Raw JSON Output:{ANSI_RESET}")
-        console.print(JSON(report.model_dump_json()))
-        print("\n")
-        
-        if report.is_anomaly_detected:
-            coord_str = "\n".join([f"* [bold]{bbox.label}[/bold]: {bbox.box_2d}" for bbox in report.visual_grounding_coordinates])
-            
-            panel_content = Text("[ALERT] FRAUD DETECTED!\n\n", style="bold red")
-            if report.audit_justification:
-                panel_content.append("Finding:\n", style="bold white")
-                panel_content.append(report.audit_justification.finding + "\n\n", style="red")
-                panel_content.append(f"Expected: {report.audit_justification.expected_value}\n", style="yellow")
-                panel_content.append(f"Actual: {report.audit_justification.actual_value}\n\n", style="yellow")
-            
-            panel_content.append("Visual Coordinates:\n", style="bold white")
-            panel_content.append(coord_str, style="yellow")
-            
-            console.print(Panel(panel_content, border_style="red", title="[bold red]Forensic Audit Result[/bold red]"))
+        if not getattr(report, "is_financial_document", True):
+            console.print(Panel.fit(f"[bold yellow][REJECTED] Non-Financial Document Detected: {report.document_type}[/bold yellow]"))
+            print(f"AegisMind rejected this document because it is not a financial record.\n")
         else:
-            console.print(Panel("[bold green][CLEAN] No anomalies detected. Document is clean.[/bold green]", border_style="green"))
+            console.print(Panel.fit("[bold green][SUCCESS] Extraction Complete! Structured Output:[/bold green]"))
+            
+            # Display the tables extracted using Rich Table
+            table = Table(title="Extracted Financial Items", show_header=True, header_style="bold cyan")
+            table.add_column("Item Description", style="dim")
+            table.add_column("Amount", justify="right", style="green")
+            table.add_column("Confidence", justify="right", style="yellow")
+            
+            for item in report.extracted_tables:
+                table.add_row(item.item_description, f"${item.amount:,.2f}", f"{item.confidence_score:.2f}")
+            
+            console.print(table)
+            print("\n")
+            
+            # Display the Raw JSON nicely
+            print(f"{ANSI_BOLD}Raw JSON Output:{ANSI_RESET}")
+            console.print(JSON(report.model_dump_json()))
+            print("\n")
+            
+            if report.is_anomaly_detected:
+                coord_str = "\n".join([f"* [bold]{bbox.label}[/bold]: {bbox.box_2d}" for bbox in report.visual_grounding_coordinates])
+                
+                panel_content = Text("[ALERT] FRAUD DETECTED!\n\n", style="bold red")
+                if report.audit_justification:
+                    panel_content.append("Finding:\n", style="bold white")
+                    panel_content.append(report.audit_justification.finding + "\n\n", style="red")
+                    panel_content.append(f"Expected: {report.audit_justification.expected_value}\n", style="yellow")
+                    panel_content.append(f"Actual: {report.audit_justification.actual_value}\n\n", style="yellow")
+                
+                panel_content.append("Visual Coordinates:\n", style="bold white")
+                panel_content.append(coord_str, style="yellow")
+                
+                console.print(Panel(panel_content, border_style="red", title="[bold red]Forensic Audit Result[/bold red]"))
+            else:
+                console.print(Panel("[bold green][CLEAN] No anomalies detected. Document is clean.[/bold green]", border_style="green"))
             
     except Exception as e:
         print(f"{ANSI_BOLD}{ANSI_RED}[ERROR]{ANSI_RESET} Error during inference: {e}")

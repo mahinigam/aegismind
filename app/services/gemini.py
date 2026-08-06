@@ -30,14 +30,17 @@ class GeminiAuditService:
     async def _run_inference(self, document_part: types.Part) -> FinancialAuditResult:
         system_instruction = (
             "You are an expert Forensic Financial Auditor. Your task is to process incoming document pages, "
+            "determine if the document is a financial record (invoice, ledger, receipt, etc.), and if so, "
             "extract mathematical table listings, and check for accounting discrepancies, fraud, or anomalies. "
-            "Crucially, if an error is found, return the precise 2D bounding boxes [ymin, xmin, ymax, xmax] "
+            "If it is NOT a financial document (e.g. a job advertisement, news article), set is_financial_document to false and leave tables empty. "
+            "Crucially, if a financial error is found, return the precise 2D bounding boxes [ymin, xmin, ymax, xmax] "
             "on a 0-1000 normalized scale along with the 0-indexed page_number showing exactly where the textual mismatch exists."
         )
 
         prompt = (
-            "Perform a strict compliance audit on this document. Extract items into structured rows. "
-            "If any fraud or calculation mismatch is occurring, flag it immediately and provide the exact bounding boxes for EVERY incorrect total (e.g. Subtotal, Tax, and Total)."
+            "1. Check if the document is a financial record. If not, reject it by setting is_financial_document to false.\n"
+            "2. If it is financial, perform a strict compliance audit on this document. Extract items into structured rows.\n"
+            "3. If any fraud or calculation mismatch is occurring, flag it immediately and provide the exact bounding boxes for EVERY incorrect total (e.g. Subtotal, Tax, and Total)."
         )
 
         response = self.client.models.generate_content(

@@ -19,7 +19,8 @@ class TableRow(BaseModel):
     confidence_score: float
 
 class FinancialAuditReport(BaseModel):
-    document_type: str = Field(..., description="Invoice, Tax Return, Bank Statement etc.")
+    is_financial_document: bool = Field(..., description="True if the document is a financial record (invoice, receipt, ledger, etc.). False if it is a non-financial document like a job posting.")
+    document_type: str = Field(..., description="Invoice, Tax Return, Bank Statement, Job Advertisement, etc.")
     extracted_tables: List[TableRow]
     is_anomaly_detected: bool = Field(..., description="True if fraud, calculations mismatch, or policy violation found")
     audit_justification: Optional[AnomalyDetails] = Field(None, description="Detailed structured reasoning if an anomaly is detected.")

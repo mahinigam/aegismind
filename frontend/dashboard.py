@@ -41,7 +41,7 @@ if uploaded_file:
             
             # Group bounding boxes by page
             bboxes_by_page = {}
-            if report.is_anomaly_detected and report.visual_grounding_coordinates:
+            if report.is_financial_document and report.is_anomaly_detected and report.visual_grounding_coordinates:
                 for bbox in report.visual_grounding_coordinates:
                     pnum = getattr(bbox, "page_number", 0)
                     bboxes_by_page.setdefault(pnum, []).append(bbox)
@@ -85,7 +85,7 @@ if uploaded_file:
         else:
             # Handle standard image uploads similarly
             img = Image.open(BytesIO(file_bytes))
-            if report.is_anomaly_detected and report.visual_grounding_coordinates:
+            if report.is_financial_document and report.is_anomaly_detected and report.visual_grounding_coordinates:
                 draw = ImageDraw.Draw(img)
                 for bbox in report.visual_grounding_coordinates:
                     coords = bbox.box_2d
@@ -109,38 +109,47 @@ if uploaded_file:
             
     with col2:
         st.subheader("Audit Results")
-        if report.is_anomaly_detected:
-            st.error("🚨 FRAUD / ANOMALY DETECTED")
-            if report.audit_justification:
-                st.markdown("### Anomaly Breakdown")
-                st.info(f"**Finding:** {report.audit_justification.finding}")
-                
-                col_a, col_b = st.columns(2)
-                col_a.metric("Actual Value (On Document)", report.audit_justification.actual_value)
-                col_b.metric("Expected Value (Calculated)", report.audit_justification.expected_value)
-                
-                st.warning(f"**Recommendation:** {report.audit_justification.recommendation}")
-            else:
-                st.write("**Justification**: Anomaly detected but no details provided.")
-        else:
-            st.success("✅ Clean Document")
+        
+        if not getattr(report, "is_financial_document", True):
+            st.warning(f"⚠️ Non-Financial Document Detected: {report.document_type}")
+            st.write("This document was rejected because it does not appear to be a financial record (invoice, ledger, receipt, etc.). AegisMind is designed strictly to audit financial calculations.")
             
-        st.write("### Extracted Financial Tables")
-        formatted_tables = []
-        for t in report.extracted_tables:
-            formatted_tables.append({
-                "Item Description": t.item_description,
-                "Amount": f"${t.amount:,.2f}",
-                "Confidence": f"{t.confidence_score:.2%}"
-            })
-        st.table(formatted_tables)
-        
-        st.write("### AI Economics")
-        st.metric(label="Inference Cost", value=f"${report.inference_cost_usd:.5f}")
-        st.json(report.token_usage)
-        
-        st.write("### Human Action")
-        if st.button("Approve & Finalize"):
-            st.success("Report Approved! Sent back to data warehouse.")
-        if st.button("Reject (Flag for Manual Review)"):
-            st.warning("Report Rejected! Escalated to Compliance Team.")
+            st.write("### AI Economics")
+            st.metric(label="Inference Cost", value=f"${report.inference_cost_usd:.5f}")
+            st.json(report.token_usage)
+        else:
+            if report.is_anomaly_detected:
+                st.error("🚨 FRAUD / ANOMALY DETECTED")
+                if report.audit_justification:
+                    st.markdown("### Anomaly Breakdown")
+                    st.info(f"**Finding:** {report.audit_justification.finding}")
+                    
+                    col_a, col_b = st.columns(2)
+                    col_a.metric("Actual Value (On Document)", report.audit_justification.actual_value)
+                    col_b.metric("Expected Value (Calculated)", report.audit_justification.expected_value)
+                    
+                    st.warning(f"**Recommendation:** {report.audit_justification.recommendation}")
+                else:
+                    st.write("**Justification**: Anomaly detected but no details provided.")
+            else:
+                st.success("✅ Clean Document")
+                
+            st.write("### Extracted Financial Tables")
+            formatted_tables = []
+            for t in report.extracted_tables:
+                formatted_tables.append({
+                    "Item Description": t.item_description,
+                    "Amount": f"${t.amount:,.2f}",
+                    "Confidence": f"{t.confidence_score:.2%}"
+                })
+            st.table(formatted_tables)
+            
+            st.write("### AI Economics")
+            st.metric(label="Inference Cost", value=f"${report.inference_cost_usd:.5f}")
+            st.json(report.token_usage)
+            
+            st.write("### Human Action")
+            if st.button("Approve & Finalize"):
+                st.success("Report Approved! Sent back to data warehouse.")
+            if st.button("Reject (Flag for Manual Review)"):
+                st.warning("Report Rejected! Escalated to Compliance Team.")
