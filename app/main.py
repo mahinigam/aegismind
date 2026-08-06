@@ -8,7 +8,13 @@ from google.cloud import bigquery
 from google.auth.exceptions import DefaultCredentialsError
 
 app = FastAPI(title="AegisMind Event-Driven Core")
-gemini_service = GeminiAuditService()
+
+# Initialize gemini_service gracefully if API key is missing during startup
+try:
+    gemini_service = GeminiAuditService()
+except ValueError as e:
+    print(f"WARNING: Gemini service initialization failed: {e}")
+    gemini_service = None
 
 try:
     bq_client = bigquery.Client()
@@ -44,6 +50,8 @@ async def handle_gcs_event(request: Request):
     
     try:
         # Run Multimodal Inference Pipeline
+        if not gemini_service:
+            raise Exception("Gemini service is not initialized. Please configure GEMINI_API_KEY.")
         audit_result = await gemini_service.analyze_document_from_gcs(gcs_uri, content_type)
         
         # Save structured results to BigQuery
@@ -82,6 +90,8 @@ async def process_document_background(job_id: str, gcs_uri: str, content_type: s
     
     try:
         # Run Multimodal Inference Pipeline
+        if not gemini_service:
+            raise Exception("Gemini service is not initialized. Please configure GEMINI_API_KEY.")
         audit_result = await gemini_service.analyze_document_from_gcs(gcs_uri, content_type)
         
         job.status = "COMPLETED"
