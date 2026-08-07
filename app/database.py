@@ -4,12 +4,13 @@ import json
 from datetime import datetime
 from google.cloud import firestore
 
-# Initialize Firestore DB (Uses Application Default Credentials or GOOGLE_APPLICATION_CREDENTIALS)
-# In a real environment, project ID would be specified or inferred automatically.
-db_client = firestore.AsyncClient() if os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("K_SERVICE") else firestore.Client()
-# Wait, let's use the synchronous client for simplicity since FastAPI dependencies can be synchronous, 
-# and it matches the old SQLAlchemy synchronous flow easily.
-db = firestore.Client()
+from google.auth.exceptions import DefaultCredentialsError
+
+try:
+    db = firestore.Client()
+except DefaultCredentialsError:
+    print("WARNING: Default credentials not found. Firestore will be disabled.")
+    db = None
 
 class Job:
     def __init__(self, id=None, status="PENDING", result_json=None, created_at=None, updated_at=None):
