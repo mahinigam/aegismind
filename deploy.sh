@@ -25,7 +25,7 @@ gcloud run deploy $SERVICE_NAME \
   --source . \
   --region=$REGION \
   --allow-unauthenticated \
-  --set-env-vars BIGQUERY_TABLE_ID="$PROJECT_ID.$DATASET_NAME.$TABLE_NAME",GCS_BUCKET_NAME="$BUCKET_NAME"
+  --set-env-vars BIGQUERY_TABLE_ID="$PROJECT_ID.$DATASET_NAME.$TABLE_NAME",GCS_BUCKET_NAME="$BUCKET_NAME",GEMINI_API_KEY="$GEMINI_API_KEY"
 
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
 
