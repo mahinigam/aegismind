@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 from app.main import app
-from app.schemas.audit import FinancialAuditReport, TableRow, BoundingBox
+from app.schemas.audit import FinancialAuditResult, TableRow, BoundingBox
 
 client = TestClient(app)
 
@@ -17,14 +17,17 @@ def test_health_check():
 @patch("app.services.gemini.GeminiAuditService.analyze_document_from_gcs", new_callable=AsyncMock)
 def test_audit_trigger_success(mock_analyze):
     # Mock the Gemini response
-    mock_analyze.return_value = FinancialAuditReport(
+    mock_analyze.return_value = FinancialAuditResult(
+        is_financial_document=True,
         document_type="Invoice",
         extracted_tables=[
             TableRow(item_description="Server Costs", amount=150.0, confidence_score=0.99)
         ],
         is_anomaly_detected=False,
-        audit_justification="All calculations match.",
-        visual_grounding_coordinates=[]
+        audit_justification=None,
+        visual_grounding_coordinates=[],
+        inference_cost_usd=0.01,
+        token_usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
     )
 
     headers = {

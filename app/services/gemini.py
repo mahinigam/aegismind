@@ -43,7 +43,7 @@ class GeminiAuditService:
             "3. If any fraud or calculation mismatch is occurring, flag it immediately and provide the exact bounding boxes for EVERY incorrect total (e.g. Subtotal, Tax, and Total)."
         )
 
-        response = self.client.models.generate_content(
+        response = await self.client.aio.models.generate_content(
             model=self.model_name,
             contents=[document_part, prompt],
             config=types.GenerateContentConfig(

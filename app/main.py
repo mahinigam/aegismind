@@ -1,6 +1,6 @@
 import os
 import json
-from fastapi import FastAPI, HTTPException, Request, status, BackgroundTasks, Depends
+from fastapi import FastAPI, HTTPException, Request, status, BackgroundTasks, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db, Job
 from app.services.gemini import GeminiAuditService
@@ -111,6 +111,38 @@ async def process_document_background(job_id: str, gcs_uri: str, content_type: s
         job.result_json = json.dumps({"error": str(e)})
         db.commit()
 
+async def process_document_local_background(job_id: str, file_bytes: bytes, content_type: str):
+    db = next(get_db())
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        return
+        
+    job.status = "PROCESSING"
+    db.commit()
+    
+    try:
+        # Run Multimodal Inference Pipeline
+        if not gemini_service:
+            raise Exception("Gemini service is not initialized. Please configure GEMINI_API_KEY.")
+        audit_result = await gemini_service.analyze_document_from_bytes(file_bytes, content_type)
+        
+        job.status = "COMPLETED"
+        job.result_json = audit_result.model_dump_json()
+        db.commit()
+        
+        # Save structured results to BigQuery
+        table_id = os.getenv("BIGQUERY_TABLE_ID")
+        if table_id and bq_client:
+            row_to_insert = [audit_result.model_dump()]
+            errors = bq_client.insert_rows_json(table_id, row_to_insert)
+            if errors:
+                print(f"BigQuery write logging errors encountered: {errors}")
+                
+    except Exception as e:
+        job.status = "FAILED"
+        job.result_json = json.dumps({"error": str(e)})
+        db.commit()
+
 @app.post("/api/submit", status_code=status.HTTP_202_ACCEPTED)
 async def submit_job(req: SubmitRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
@@ -124,6 +156,41 @@ async def submit_job(req: SubmitRequest, background_tasks: BackgroundTasks, db: 
     background_tasks.add_task(process_document_background, job.id, req.gcs_uri, req.content_type)
     
     return {"job_id": job.id, "status": job.status}
+
+@app.post("/api/upload-local", status_code=status.HTTP_202_ACCEPTED)
+async def submit_local_job(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Simulates GCS upload by accepting a file and processing it via bytes.
+    """
+    job = Job(status="PENDING")
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    
+    file_bytes = await file.read()
+    background_tasks.add_task(process_document_local_background, job.id, file_bytes, file.content_type)
+    
+    return {"job_id": job.id, "status": job.status}
+
+@app.get("/api/jobs")
+async def get_jobs(db: Session = Depends(get_db)):
+    """
+    Retrieves all jobs for the review queue.
+    """
+    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+    results = []
+    for job in jobs:
+        # only send back necessary info
+        job_data = {"job_id": job.id, "status": job.status, "created_at": job.created_at.isoformat()}
+        if job.result_json:
+            try:
+                parsed_result = json.loads(job.result_json)
+                job_data["is_anomaly_detected"] = parsed_result.get("is_anomaly_detected", False)
+                job_data["document_type"] = parsed_result.get("document_type", "Unknown")
+            except:
+                pass
+        results.append(job_data)
+    return results
 
 @app.get("/api/status/{job_id}")
 async def get_job_status(job_id: str, db: Session = Depends(get_db)):

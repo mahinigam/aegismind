@@ -12,8 +12,10 @@ gcloud services enable run.googleapis.com build.googleapis.com eventarc.googleap
 echo "2. Setting up Google Cloud Storage Bucket..."
 gcloud storage buckets create gs://$BUCKET_NAME --location=$REGION
 
-echo "3. Initializing BigQuery Dataset..."
+echo "3. Initializing BigQuery Dataset and Table..."
 gcloud bq datasets create --location=$REGION $DATASET_NAME
+bq mk --table $PROJECT_ID:$DATASET_NAME.$TABLE_NAME \
+  is_financial_document:BOOLEAN,document_type:STRING,extracted_tables:JSON,is_anomaly_detected:BOOLEAN,audit_justification:JSON,visual_grounding_coordinates:JSON,inference_cost_usd:FLOAT,token_usage:JSON
 
 echo "4. Deploying Serverless Code Engine to Cloud Run (scales down to 0 instances when idle)..."
 gcloud run deploy $SERVICE_NAME \
