@@ -168,6 +168,12 @@ async def submit_local_job(background_tasks: BackgroundTasks, file: UploadFile =
     db.refresh(job)
     
     file_bytes = await file.read()
+    
+    # Save locally for XAI rendering
+    os.makedirs("uploads", exist_ok=True)
+    with open(f"uploads/{job.id}.pdf", "wb") as f:
+        f.write(file_bytes)
+        
     background_tasks.add_task(process_document_local_background, job.id, file_bytes, file.content_type)
     
     return {"job_id": job.id, "status": job.status}

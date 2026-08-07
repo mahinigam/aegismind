@@ -15,7 +15,7 @@ from app.schemas.audit import FinancialAuditResult
 st.set_page_config(page_title="AegisMind Review", layout="wide")
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["Upload Document", "Review Queue"])
+page = st.sidebar.radio("Go to", ["Upload Document", "Review Queue", "Analytics"])
 
 API_BASE_URL = "http://localhost:8000"
 
@@ -234,7 +234,64 @@ elif page == "Review Queue":
                     job_info = job_res.json()
                     if job_info["status"] == "COMPLETED" and "result" in job_info:
                         report = FinancialAuditResult(**job_info["result"])
-                        st.json(job_info["result"])
-                        render_audit_results(report)
+                        
+                        col1, col2 = st.columns([1, 1])
+                        
+                        # Try to load local file if it exists
+                        file_path = f"uploads/{selected_job}.pdf"
+                        if os.path.exists(file_path):
+                            with open(file_path, "rb") as f:
+                                file_bytes = f.read()
+                            with col1:
+                                render_document(file_bytes, "application/pdf", report)
+                        else:
+                            with col1:
+                                st.info("Original document not available locally.")
+                                st.json(job_info["result"])
+                                
+                        with col2:
+                            render_audit_results(report)
+    except Exception as e:
+        st.error(f"Could not connect to API: {e}")
+
+elif page == "Analytics":
+    st.title("AegisMind Analytics Dashboard")
+    st.markdown("Monitor AI economics and inference costs across all processed documents.")
+    
+    try:
+        res = requests.get(f"{API_BASE_URL}/api/jobs")
+        res.raise_for_status()
+        jobs = res.json()
+        
+        completed_jobs = [j for j in jobs if j["status"] == "COMPLETED" and "result" in j and j["result"]]
+        
+        if not completed_jobs:
+            st.info("No completed jobs with data available yet.")
+        else:
+            total_cost = 0.0
+            total_tokens = 0
+            
+            cost_timeline = {}
+            
+            for j in completed_jobs:
+                report = j["result"]
+                cost = report.get("inference_cost_usd", 0.0)
+                tokens = report.get("token_usage", {}).get("total_tokens", 0)
+                
+                total_cost += cost
+                total_tokens += tokens
+                
+                # Group by date for simple timeline
+                date_str = j["created_at"].split("T")[0]
+                cost_timeline[date_str] = cost_timeline.get(date_str, 0.0) + cost
+                
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Completed Audits", len(completed_jobs))
+            col2.metric("Total Inference Cost", f"${total_cost:.5f}")
+            col3.metric("Total Tokens Processed", f"{total_tokens:,}")
+            
+            st.subheader("Inference Cost Over Time (USD)")
+            st.bar_chart(cost_timeline)
+            
     except Exception as e:
         st.error(f"Could not connect to API: {e}")
