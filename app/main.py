@@ -1,10 +1,12 @@
 import os
 import json
 from fastapi import FastAPI, HTTPException, Request, status, BackgroundTasks, Depends, UploadFile, File
-from sqlalchemy.orm import Session
+from fastapi.responses import Response
 from app.database import get_db, Job
 from app.services.gemini import GeminiAuditService
 from google.cloud import bigquery
+from google.cloud import storage
+from google.cloud.firestore import Query
 from google.auth.exceptions import DefaultCredentialsError
 
 app = FastAPI(title="AegisMind Event-Driven Core")
@@ -19,15 +21,16 @@ except ValueError as e:
 try:
     bq_client = bigquery.Client()
 except DefaultCredentialsError:
-    print("WARNING: No GCP credentials found. BigQuery writes will be skipped locally.")
+    print("WARNING: Default credentials not found. BigQuery logging will be disabled.")
     bq_client = None
 
 @app.get("/health")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
+# Eventarc webhook implementation
 @app.post("/api/audit-trigger")
-async def handle_gcs_event(request: Request):
+async def audit_trigger(request: Request):
     """
     Catches event notifications whenever a document drops inside the monitored GCS Bucket
     """
@@ -81,12 +84,14 @@ class SubmitRequest(BaseModel):
 
 async def process_document_background(job_id: str, gcs_uri: str, content_type: str):
     db = next(get_db())
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
+    doc_ref = db.collection("jobs").document(job_id)
+    doc = doc_ref.get()
+    if not doc.exists:
         return
         
+    job = Job.from_dict(doc.to_dict())
     job.status = "PROCESSING"
-    db.commit()
+    doc_ref.set(job.to_dict())
     
     try:
         # Run Multimodal Inference Pipeline
@@ -96,7 +101,7 @@ async def process_document_background(job_id: str, gcs_uri: str, content_type: s
         
         job.status = "COMPLETED"
         job.result_json = audit_result.model_dump_json()
-        db.commit()
+        doc_ref.set(job.to_dict())
         
         # Save structured results to BigQuery
         table_id = os.getenv("BIGQUERY_TABLE_ID")
@@ -109,85 +114,83 @@ async def process_document_background(job_id: str, gcs_uri: str, content_type: s
     except Exception as e:
         job.status = "FAILED"
         job.result_json = json.dumps({"error": str(e)})
-        db.commit()
-
-async def process_document_local_background(job_id: str, file_bytes: bytes, content_type: str):
-    db = next(get_db())
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        return
-        
-    job.status = "PROCESSING"
-    db.commit()
-    
-    try:
-        # Run Multimodal Inference Pipeline
-        if not gemini_service:
-            raise Exception("Gemini service is not initialized. Please configure GEMINI_API_KEY.")
-        audit_result = await gemini_service.analyze_document_from_bytes(file_bytes, content_type)
-        
-        job.status = "COMPLETED"
-        job.result_json = audit_result.model_dump_json()
-        db.commit()
-        
-        # Save structured results to BigQuery
-        table_id = os.getenv("BIGQUERY_TABLE_ID")
-        if table_id and bq_client:
-            row_to_insert = [audit_result.model_dump()]
-            errors = bq_client.insert_rows_json(table_id, row_to_insert)
-            if errors:
-                print(f"BigQuery write logging errors encountered: {errors}")
-                
-    except Exception as e:
-        job.status = "FAILED"
-        job.result_json = json.dumps({"error": str(e)})
-        db.commit()
+        doc_ref.set(job.to_dict())
 
 @app.post("/api/submit", status_code=status.HTTP_202_ACCEPTED)
-async def submit_job(req: SubmitRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def submit_job(req: SubmitRequest, background_tasks: BackgroundTasks, db = Depends(get_db)):
     """
     Submits a document for background async processing.
     """
     job = Job(status="PENDING")
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    db.collection("jobs").document(job.id).set(job.to_dict())
     
     background_tasks.add_task(process_document_background, job.id, req.gcs_uri, req.content_type)
     
     return {"job_id": job.id, "status": job.status}
 
 @app.post("/api/upload-local", status_code=status.HTTP_202_ACCEPTED)
-async def submit_local_job(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def submit_local_job(background_tasks: BackgroundTasks, file: UploadFile = File(...), db = Depends(get_db)):
     """
-    Simulates GCS upload by accepting a file and processing it via bytes.
+    Uploads file to GCS and queues the background job via Firestore.
     """
     job = Job(status="PENDING")
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    db.collection("jobs").document(job.id).set(job.to_dict())
     
     file_bytes = await file.read()
     
-    # Save locally for XAI rendering
-    os.makedirs("uploads", exist_ok=True)
-    with open(f"uploads/{job.id}.pdf", "wb") as f:
-        f.write(file_bytes)
+    bucket_name = os.getenv("GCS_BUCKET_NAME")
+    if not bucket_name:
+        # Fallback to local processing if GCS bucket is not configured
+        job.status = "FAILED"
+        job.result_json = json.dumps({"error": "GCS_BUCKET_NAME is not set."})
+        db.collection("jobs").document(job.id).set(job.to_dict())
+        return {"job_id": job.id, "status": job.status}
         
-    background_tasks.add_task(process_document_local_background, job.id, file_bytes, file.content_type)
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(f"uploads/{job.id}.pdf")
+        blob.upload_from_string(file_bytes, content_type=file.content_type)
+    except Exception as e:
+        job.status = "FAILED"
+        job.result_json = json.dumps({"error": f"Failed to upload to GCS: {str(e)}"})
+        db.collection("jobs").document(job.id).set(job.to_dict())
+        return {"job_id": job.id, "status": job.status}
+        
+    gcs_uri = f"gs://{bucket_name}/uploads/{job.id}.pdf"
+    background_tasks.add_task(process_document_background, job.id, gcs_uri, file.content_type)
     
     return {"job_id": job.id, "status": job.status}
 
+@app.get("/api/download/{job_id}")
+async def download_file(job_id: str):
+    """
+    Fetches original document from GCS for Visual Grounding in UI.
+    """
+    bucket_name = os.getenv("GCS_BUCKET_NAME")
+    if not bucket_name:
+        raise HTTPException(status_code=500, detail="GCS_BUCKET_NAME env var not set")
+    try:
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(f"uploads/{job_id}.pdf")
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="File not found in GCS")
+        file_bytes = blob.download_as_bytes()
+        return Response(content=file_bytes, media_type="application/pdf")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found or error: {str(e)}")
+
 @app.get("/api/jobs")
-async def get_jobs(db: Session = Depends(get_db)):
+async def get_jobs(db = Depends(get_db)):
     """
     Retrieves all jobs for the review queue.
     """
-    jobs = db.query(Job).order_by(Job.created_at.desc()).all()
+    docs = db.collection("jobs").order_by("created_at", direction=Query.DESCENDING).get()
     results = []
-    for job in jobs:
-        # only send back necessary info
-        job_data = {"job_id": job.id, "status": job.status, "created_at": job.created_at.isoformat()}
+    for doc in docs:
+        job = Job.from_dict(doc.to_dict())
+        job_data = {"job_id": job.id, "status": job.status, "created_at": job.created_at.isoformat() if hasattr(job.created_at, 'isoformat') else str(job.created_at)}
         if job.result_json:
             try:
                 parsed_result = json.loads(job.result_json)
@@ -199,14 +202,15 @@ async def get_jobs(db: Session = Depends(get_db)):
     return results
 
 @app.get("/api/status/{job_id}")
-async def get_job_status(job_id: str, db: Session = Depends(get_db)):
+async def get_job_status(job_id: str, db = Depends(get_db)):
     """
     Polls the current status of an async job.
     """
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
+    doc = db.collection("jobs").document(job_id).get()
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Job not found")
         
+    job = Job.from_dict(doc.to_dict())
     response = {"job_id": job.id, "status": job.status}
     if job.result_json:
         try:
@@ -228,5 +232,4 @@ async def handle_dlq_event(request: Request):
     print(f"🚨 [DLQ ALERT] Message failed processing 5+ times. Attributes: {attributes}")
     print(f"Message Data: {message.get('data')}")
     
-    # In an enterprise system, this would trigger a PagerDuty alert or write to a dedicated DLQ BigQuery table.
     return {"status": "logged_to_dlq"}

@@ -6,8 +6,11 @@ export SERVICE_NAME="aegismind-core"
 export DATASET_NAME="aegismind_analytics"
 export TABLE_NAME="audit_records"
 
-echo "1. Enabling Cloud Build, Cloud Run, Eventarc, BigQuery, and Vertex AI APIs..."
-gcloud services enable run.googleapis.com build.googleapis.com eventarc.googleapis.com bigquery.googleapis.com aiplatform.googleapis.com
+echo "1. Enabling Cloud Build, Cloud Run, Eventarc, BigQuery, Firestore, and Vertex AI APIs..."
+gcloud services enable run.googleapis.com build.googleapis.com eventarc.googleapis.com bigquery.googleapis.com aiplatform.googleapis.com firestore.googleapis.com
+
+# Initialize Firestore in Native mode if not already created
+# gcloud firestore databases create --location=$REGION --type=firestore-native || true
 
 echo "2. Setting up Google Cloud Storage Bucket..."
 gcloud storage buckets create gs://$BUCKET_NAME --location=$REGION
@@ -22,7 +25,7 @@ gcloud run deploy $SERVICE_NAME \
   --source . \
   --region=$REGION \
   --allow-unauthenticated \
-  --set-env-vars BIGQUERY_TABLE_ID="$PROJECT_ID.$DATASET_NAME.$TABLE_NAME"
+  --set-env-vars BIGQUERY_TABLE_ID="$PROJECT_ID.$DATASET_NAME.$TABLE_NAME",GCS_BUCKET_NAME="$BUCKET_NAME"
 
 SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
 
@@ -45,6 +48,20 @@ gcloud eventarc triggers create aegismind-gcs-trigger \
   --destination-pubsub-topic="aegismind-events" \
   --event-filters="type=google.cloud.storage.object.v1.finalized" \
   --event-filters="bucket=$BUCKET_NAME" \
-  --service-account="$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+  --service-account="$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')-compute@developer.gserviceaccount.com" || echo "Eventarc trigger already exists or failed to create."
 
-echo "Deployment complete! Upload any document to gs://$BUCKET_NAME to see it audit live!"
+echo "7. Deploying Streamlit UI to Cloud Run..."
+# Build the UI container using Dockerfile.ui and deploy it
+gcloud builds submit --tag gcr.io/$PROJECT_ID/aegismind-ui -f Dockerfile.ui .
+gcloud run deploy aegismind-ui \
+  --image gcr.io/$PROJECT_ID/aegismind-ui \
+  --region=$REGION \
+  --allow-unauthenticated \
+  --set-env-vars API_BASE_URL="$SERVICE_URL"
+
+UI_URL=$(gcloud run services describe aegismind-ui --region $REGION --format 'value(status.url)')
+
+echo "Deployment complete!"
+echo "Backend API: $SERVICE_URL"
+echo "Frontend UI: $UI_URL"
+echo "Upload any document to gs://$BUCKET_NAME or through the UI to see it audit live!"

@@ -17,7 +17,9 @@ st.set_page_config(page_title="AegisMind Review", layout="wide")
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["Upload Document", "Review Queue", "Analytics"])
 
-API_BASE_URL = "http://localhost:8000"
+import os
+
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def render_document(file_bytes, mime_type, report: FinancialAuditResult):
     st.subheader("Document Viewer")
@@ -237,16 +239,20 @@ elif page == "Review Queue":
                         
                         col1, col2 = st.columns([1, 1])
                         
-                        # Try to load local file if it exists
-                        file_path = f"uploads/{selected_job}.pdf"
-                        if os.path.exists(file_path):
-                            with open(file_path, "rb") as f:
-                                file_bytes = f.read()
+                        # Try to load file from API
+                        try:
+                            pdf_res = requests.get(f"{API_BASE_URL}/api/download/{selected_job}")
+                            if pdf_res.status_code == 200:
+                                file_bytes = pdf_res.content
+                                with col1:
+                                    render_document(file_bytes, "application/pdf", report)
+                            else:
+                                with col1:
+                                    st.info("Original document not available (Not found in Cloud Storage).")
+                                    st.json(job_info["result"])
+                        except Exception as e:
                             with col1:
-                                render_document(file_bytes, "application/pdf", report)
-                        else:
-                            with col1:
-                                st.info("Original document not available locally.")
+                                st.info("Original document not available (Error downloading).")
                                 st.json(job_info["result"])
                                 
                         with col2:
